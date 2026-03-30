@@ -85,24 +85,14 @@ class DefaultQuadcopterStrategy:
         crossed       = self.env._gate_crossed_this_step
         lap_completed = self.env._lap_completed_this_step
 
-        # Speed reward: full 3D speed magnitude, signed by hemisphere.
-        # Sign is determined by dot product with gate normal (positive = approaching,
-        # negative = retreating). Retreat penalized retreat_mult× harder so any
-        # oscillation or revolution is net negative.
-        # (inactive: velocity_reward_scale=0 for now, enable when tuning speed)
-        rot_mat      = matrix_from_quat(self.env._robot.data.root_quat_w)
-        lin_vel_w    = torch.bmm(rot_mat,
-                                 self.env._robot.data.root_com_lin_vel_b.unsqueeze(-1)
-                                 ).squeeze(-1)
-        gate_normal  = self.env._normal_vectors[self.env._idx_wp]
-        vel_sign     = torch.sign((lin_vel_w * gate_normal).sum(dim=1))
-        speed        = torch.norm(lin_vel_w, dim=1)
-        retreat_mult = self.env.rew['velocity_retreat_multiplier']
-        vel_toward_gate = torch.where(
-            vel_sign >= 0,
-            speed,
-            -speed * retreat_mult
-        )
+        # Progress reward: delta distance to current gate center.
+        # Positive when closing distance, negative when retreating.
+        # Retreat penalized retreat_mult× harder so any oscillation is net negative.
+        dist_now  = torch.linalg.norm(self.env._pose_drone_wrt_gate, dim=1)
+        progress  = self.env._last_distance_to_goal - dist_now  # +ve = approaching
+        retreat_mult = self.env.rew['progress_retreat_multiplier']
+        progress  = torch.where(progress >= 0, progress, progress * retreat_mult)
+        self.env._last_distance_to_goal = dist_now.clone()
 
         # Crash: sustained contact force after a 100-step grace period
         contact_forces = self.env._contact_sensor.data.net_forces_w
@@ -118,8 +108,8 @@ class DefaultQuadcopterStrategy:
                 "lap_complete": lap_completed.float() * self.env.rew['lap_complete_reward_scale'],
                 # Dense negative: penalise contact each step (after grace period)
                 "crash":        crashed.float()       * self.env.rew['crash_reward_scale'],
-                # Dense: speed toward gate — inactive (coeff=0), enable for lap time opt
-                "velocity":     vel_toward_gate       * self.env.rew['velocity_reward_scale'],
+                # Dense: delta distance to gate — inactive (coeff=0), enable for lap time opt
+                "progress":     progress              * self.env.rew['progress_reward_scale'],
             }
             reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
             reward = torch.where(self.env.reset_terminated,

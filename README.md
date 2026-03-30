@@ -112,25 +112,30 @@ Configured in `train_race.py`:
 ```python
 rewards = {
     'gate_cross_reward_scale':     5.0,   # sparse: per correct gate traversal
-    'lap_complete_reward_scale':  50.0,   # sparse: full lap (all 7 gates)
-    'crash_reward_scale':         -0.1,   # dense: per-step contact, after 100-step grace
-    'death_cost':                -15.0,   # terminal: on episode death
-    'velocity_reward_scale':       0.0,   # INACTIVE — enable for lap time optimization
-    'velocity_retreat_multiplier': 1.5,   # retreat penalized 1.5× vs approach reward
+    'lap_complete_reward_scale':  25.0,   # sparse: full lap (all 7 gates)
+    'crash_reward_scale':       -0.005,   # dense: per-step contact, after 100-step grace
+    'death_cost':                 -1.0,   # terminal: on episode death
+    'progress_reward_scale':       0.1,   # dense: delta distance to gate center
+    'progress_retreat_multiplier': 1.5,   # retreat penalized 1.5× vs approach reward
 }
 ```
 
-**Balance:** crash-farm 7 gates + die = 35-15 = +20. Clean lap = 85. 4× better → policy prefers completion.
+**Balance:** crash-farm 7 gates + die = 35-1 = +34. Clean lap = 60. ~2× better → prefers completion.
+Death cost is mild — policy won't be afraid to fly aggressively. Gate crossing does the heavy lifting.
 
-**Crash fires on gate-frame contact too** — keep small to avoid penalizing gate brushes. Death is real deterrent.
+**Crash fires on gate-frame contact too** — kept very small (-0.005) to avoid penalizing gate brushes.
 
-**Velocity reward (inactive):**
+**Progress reward:**
 ```python
-vel_toward_gate = speed            if dot(v, gate_normal) >= 0
-                = -speed * 1.5     if dot(v, gate_normal) <  0
+progress = last_dist - curr_dist                         # +ve = closing distance
+progress = where(progress >= 0, progress, progress * 1.5)  # retreat penalized 1.5×
 ```
-Full oscillation = net `-0.5·v·T` (always negative). Prevents hover-near-gate exploit.
-Enable by setting `velocity_reward_scale > 0` after reliable lap completion.
+Delta distance to gate center, ~0.06m/step at 3m/s. Over a 5m segment: ~0.5 cumulative vs 5.0
+for crossing → crossing is 10× more valuable. Progress just nudges toward the gate.
+Oscillation is net negative (approach reward < retreat penalty for same displacement).
+
+Replaced velocity reward (which used fixed gate normal — broken when drone is past the gate,
+and equivalent to progress when fixed to use drone-to-gate direction).
 
 ---
 
@@ -249,7 +254,8 @@ Real fix was the `.squeeze(-1)` bug, not batch size.
 | Single scalar lap progress (e.g. 2.7) | Rejected | Euclidean inter-gate dist wrong for powerloop (gates 1-2 are 1.25m apart but require vertical loop). Boundary discontinuity 6.9→0. |
 | Single cos with [0,π] range | Rejected | cos(0)=cos(2π) regardless of range. Periodicity survives rescaling. |
 | Heading/yaw error as gate obs | Rejected | Heading loses y/z centering. Normalized direction loses distance. Full 3D pos_wrt_gate strictly better. |
-| Crash reward as primary deterrent | Kept tiny (-0.1) | Fires on gate-frame contact. Death cost is real deterrent. |
+| Crash reward as primary deterrent | Kept tiny (-0.005) | Fires on gate-frame contact. Death cost is real deterrent. |
+| Velocity reward (dot with gate normal) | Replaced by progress | Fixed gate normal is wrong when drone is past gate. Using drone-to-gate direction collapses to delta-distance (progress). Progress is simpler, cheaper, correct everywhere. |
 | LSTM/Transformer for longer rollouts | Deferred | Recurrence doesn't enable longer rollouts — BPTT still truncated at rollout boundary. Memory bottleneck same. Overkill given good obs design. |
 | KL-penalty PPO instead of clipped | Rejected | Needs extra β tuning. Adaptive KL LR schedule already gives most of benefit. |
 | Time-decaying lap bonus as primary speed signal | Deferred to phase 2 | Sparse + episodic — rarely seen in 24-step window. Non-stationary value function. Use dense velocity reward as primary. |
