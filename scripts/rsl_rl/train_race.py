@@ -106,15 +106,20 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     log_dir = os.path.join(log_root_path, log_dir)
 
     # TODO ----- START ----- Define rewards scales
-    # reward scales
-    progress_goal_reward_scale = 50.0
-    crash_reward = -1.0
-    death_cost = -10.0
-
     rewards = {
-        'progress_goal_reward_scale': progress_goal_reward_scale,
-        'crash_reward_scale': crash_reward,
-        'death_cost': death_cost,
+        # Sparse: per correctly traversed gate (direction-enforced, within bounds)
+        'gate_cross_reward_scale':      5.0,
+        # Sparse: bonus on completing a full lap (all 7 gates)
+        'lap_complete_reward_scale':    25.0,
+        # Small per-step contact penalty
+        'crash_reward_scale':           -0.1,
+        # Terminal: applied on episode death (crash/altitude violation). Note: crash reward * 100 steps already accumulated
+        'death_cost':                   -15.0,
+        # Dense: signed velocity toward gate — inactive for now, enable for speed opt
+        # Retreat is penalized retreat_mult× harder than equivalent approach is rewarded,
+        # so any oscillation is net negative.
+        'velocity_reward_scale':        0.0,
+        'velocity_retreat_multiplier':  1.5,
     }
     # TODO ----- END -----
 
