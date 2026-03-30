@@ -73,6 +73,11 @@ class DefaultQuadcopterStrategy:
         )
 
     def get_rewards(self) -> torch.Tensor:
+
+        if not self.cfg.is_train:
+            return torch.zeros(self.num_envs, device=self.device)
+
+
         # Gate crossing and lap completion are computed in env._update_gate_state()
         # which runs at the top of _get_dones — before this call and before
         # _get_observations, so _idx_wp and _pose_drone_wrt_gate are already
