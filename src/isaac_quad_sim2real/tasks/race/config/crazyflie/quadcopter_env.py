@@ -728,7 +728,7 @@ class QuadcopterEnv(DirectRLEnv):
         # Incorrect crossing: forward through non-target gate, or backward through any gate.
         # Only counts as wrong if the correct gate wasn't also crossed this step.
         target_mask = torch.zeros(self.num_envs, n_gates, dtype=torch.bool, device=self.device)
-        target_mask.scatter_(1, self._idx_wp.unsqueeze(1), True)
+        target_mask.scatter_(1, self._idx_wp.unsqueeze(1).long(), True)
         wrong_fwd = ((self._gates_crossed_this_step > 0) & ~target_mask).any(dim=1)
         any_bwd   = (self._gates_crossed_this_step < 0).any(dim=1)
         self._wrong_gate_crossed = (wrong_fwd | any_bwd) & ~target_crossed
