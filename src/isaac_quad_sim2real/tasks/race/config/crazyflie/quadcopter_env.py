@@ -241,6 +241,11 @@ class QuadcopterEnvCfg(DirectRLEnvCfg):
 
     rewards = {}
 
+    # Domain randomization: linear curriculum over training iterations
+    domain_randomization: bool = False
+    dr_start_iter: int = 0      # iteration at which DR begins
+    dr_full_iter:  int = 500    # iteration at which DR reaches full range
+
     # Strategy class for custom rewards, observations, and resets
     strategy_class: type[DefaultQuadcopterStrategy] = DefaultQuadcopterStrategy
 

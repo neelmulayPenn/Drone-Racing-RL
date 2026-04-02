@@ -42,27 +42,16 @@ class DefaultQuadcopterStrategy:
                 for key in keys
             }
 
-        # Initialize fixed parameters once (no domain randomization)
-        # These parameters remain constant throughout the simulation
-        # Aerodynamic drag coefficients
+        # Set nominal parameters for all envs at init
         self.env._K_aero[:, :2] = self.env._k_aero_xy_value
         self.env._K_aero[:, 2] = self.env._k_aero_z_value
-
-        # PID controller gains for angular rate control
-        # Roll and pitch use the same gains
         self.env._kp_omega[:, :2] = self.env._kp_omega_rp_value
         self.env._ki_omega[:, :2] = self.env._ki_omega_rp_value
         self.env._kd_omega[:, :2] = self.env._kd_omega_rp_value
-
-        # Yaw has different gains
         self.env._kp_omega[:, 2] = self.env._kp_omega_y_value
         self.env._ki_omega[:, 2] = self.env._ki_omega_y_value
         self.env._kd_omega[:, 2] = self.env._kd_omega_y_value
-
-        # Motor time constants (same for all 4 motors)
         self.env._tau_m[:] = self.env._tau_m_value
-
-        # Thrust to weight ratio
         self.env._thrust_to_weight[:] = self.env._twr_value
 
         # Rolling action history buffer: [num_envs, num_prev_action_steps * 4]
@@ -365,3 +354,28 @@ class DefaultQuadcopterStrategy:
         )
 
         self.env._crashed[env_ids] = 0
+
+        # Domain randomization: linear curriculum
+        if self.cfg.domain_randomization:
+            n = len(env_ids)
+            alpha = max(0.0, min(1.0, (self.env.iteration - self.cfg.dr_start_iter)
+                                      / max(1, self.cfg.dr_full_iter - self.cfg.dr_start_iter)))
+
+            def _rand(nominal, lo_mult, hi_mult):
+                lo = nominal * (1.0 + alpha * (lo_mult - 1.0))
+                hi = nominal * (1.0 + alpha * (hi_mult - 1.0))
+                return torch.empty(n, device=self.device).uniform_(lo, hi)
+
+            self.env._thrust_to_weight[env_ids] = _rand(self.env._twr_value, 0.95, 1.05)
+            self.env._K_aero[env_ids, 0] = _rand(self.env._k_aero_xy_value, 0.5, 2.0)
+            self.env._K_aero[env_ids, 1] = _rand(self.env._k_aero_xy_value, 0.5, 2.0)
+            self.env._K_aero[env_ids, 2] = _rand(self.env._k_aero_z_value,  0.5, 2.0)
+            self.env._kp_omega[env_ids, 0] = _rand(self.env._kp_omega_rp_value, 0.85, 1.15)
+            self.env._kp_omega[env_ids, 1] = _rand(self.env._kp_omega_rp_value, 0.85, 1.15)
+            self.env._ki_omega[env_ids, 0] = _rand(self.env._ki_omega_rp_value, 0.85, 1.15)
+            self.env._ki_omega[env_ids, 1] = _rand(self.env._ki_omega_rp_value, 0.85, 1.15)
+            self.env._kd_omega[env_ids, 0] = _rand(self.env._kd_omega_rp_value, 0.7, 1.3)
+            self.env._kd_omega[env_ids, 1] = _rand(self.env._kd_omega_rp_value, 0.7, 1.3)
+            self.env._kp_omega[env_ids, 2] = _rand(self.env._kp_omega_y_value, 0.85, 1.15)
+            self.env._ki_omega[env_ids, 2] = _rand(self.env._ki_omega_y_value, 0.85, 1.15)
+            self.env._kd_omega[env_ids, 2] = _rand(self.env._kd_omega_y_value, 0.7, 1.3)
