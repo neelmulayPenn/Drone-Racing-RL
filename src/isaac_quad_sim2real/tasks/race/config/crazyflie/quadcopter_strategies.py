@@ -92,6 +92,9 @@ class DefaultQuadcopterStrategy:
         progress  = self.env._last_distance_to_goal - dist_now  # +ve = approaching
         retreat_mult = self.env.rew['progress_retreat_multiplier']
         progress  = torch.where(progress >= 0, progress, progress * retreat_mult)
+        # Zero out progress on gate-crossing steps: dist_now is relative to the new
+        # target gate while _last_distance_to_goal was relative to the old one.
+        progress[crossed] = 0.0
         self.env._last_distance_to_goal = dist_now.clone()
 
         # Crash: sustained contact force after a 100-step grace period
@@ -131,7 +134,7 @@ class DefaultQuadcopterStrategy:
             next_gate_in_gate (3)  — next gate position in current gate frame (lookahead)
             gate_normal_b     (3)  — current gate approach normal in body frame
             prev_actions      (num_prev_action_steps * 4)  — action history, oldest first
-            lap_progress      (2)  — (sin, cos) of gate index in lap, periodic across boundary
+            target_gate_phase (2)  — (sin, cos) of target gate index, periodic across boundary
         """
         n_gates   = self.env._waypoints.shape[0]
         quat_w    = self.env._robot.data.root_quat_w          # [N, 4]
@@ -165,11 +168,10 @@ class DefaultQuadcopterStrategy:
         self._action_history = torch.roll(self._action_history, -4, dims=1)
         self._action_history[:, -4:] = self.env._previous_actions       # [N, steps*4]
 
-        # --- Lap progress: sin/cos of gate index, periodic across lap boundary ---
-        gate_idx  = (self.env._n_gates_passed % n_gates).float()        # [N]
-        angle     = 2.0 * np.pi * gate_idx / n_gates
-        lap_sin   = torch.sin(angle).unsqueeze(1)                       # [N, 1]
-        lap_cos   = torch.cos(angle).unsqueeze(1)                       # [N, 1]
+        # --- Target gate phase: sin/cos encoding of current target gate index ---
+        angle     = 2.0 * np.pi * self.env._idx_wp.float() / n_gates
+        gate_sin  = torch.sin(angle).unsqueeze(1)                       # [N, 1]
+        gate_cos  = torch.cos(angle).unsqueeze(1)                       # [N, 1]
 
         obs = torch.cat([
             lin_vel_b,          # (3)
@@ -179,8 +181,8 @@ class DefaultQuadcopterStrategy:
             next_gate_in_gate,  # (3) next gate center in current gate frame
             gate_normal_b,      # (3) gate approach direction in body frame
             self._action_history,  # (num_prev_action_steps * 4)
-            lap_sin,            # (1)
-            lap_cos,            # (1)
+            gate_sin,           # (1)
+            gate_cos,           # (1)
         ], dim=-1)
 
         return {"policy": obs}
