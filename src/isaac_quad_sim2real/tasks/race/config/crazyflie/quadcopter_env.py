@@ -284,6 +284,7 @@ class QuadcopterEnv(DirectRLEnv):
         # [num_envs, n_gates]: +1 forward crossing, -1 backward crossing, 0 no crossing
         self._gates_crossed_this_step = torch.zeros(self.num_envs, self._waypoints.shape[0], dtype=torch.int, device=self.device)
         self._target_gate_crossed = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self._wrong_gate_crossed = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self._lap_completed_this_step = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         # Separate lap counter: always starts at 0 on reset, independent of spawn gate.
         # _n_gates_passed tracks absolute count (used for sin/cos obs encoding),
@@ -724,6 +725,14 @@ class QuadcopterEnv(DirectRLEnv):
         # Save before _idx_wp advances — rewards read this after advancement
         self._target_gate_crossed = target_crossed
 
+        # Incorrect crossing: forward through non-target gate, or backward through any gate.
+        # Only counts as wrong if the correct gate wasn't also crossed this step.
+        target_mask = torch.zeros(self.num_envs, n_gates, dtype=torch.bool, device=self.device)
+        target_mask.scatter_(1, self._idx_wp.unsqueeze(1), True)
+        wrong_fwd = ((self._gates_crossed_this_step > 0) & ~target_mask).any(dim=1)
+        any_bwd   = (self._gates_crossed_this_step < 0).any(dim=1)
+        self._wrong_gate_crossed = (wrong_fwd | any_bwd) & ~target_crossed
+
         ids_crossed = torch.where(target_crossed)[0]
         if ids_crossed.numel() > 0:
             self._idx_wp[ids_crossed]             = (self._idx_wp[ids_crossed] + 1) % n_gates
@@ -769,6 +778,7 @@ class QuadcopterEnv(DirectRLEnv):
             cond_max_h
           | cond_h_min_time
           | cond_crashed
+          | self._wrong_gate_crossed
         )
 
         # timeout conditions

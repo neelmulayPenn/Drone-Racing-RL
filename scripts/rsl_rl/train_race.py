@@ -112,13 +112,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # Sparse: bonus on completing a full lap (all 7 gates)
         'lap_complete_reward_scale':    25.0,
         # Small per-step contact penalty
-        'crash_reward_scale':           -0.005,
+        'crash_reward_scale':           -0.002,
         # Terminal: applied on episode death (crash/altitude violation)
-        'death_cost':                   -1.0,
+        'death_cost':                   -0.5,
         # Dense: delta distance to gate — inactive for now, enable for speed opt
         # Retreat penalized retreat_mult× harder so oscillation is net negative.
-        'progress_reward_scale':        0.1,
-        'progress_retreat_multiplier':  1.5,
+        'progress_reward_scale':        0.08,
+        'progress_retreat_multiplier':  1.000,
     }
     # TODO ----- END -----
 
