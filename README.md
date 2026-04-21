@@ -5,6 +5,115 @@ Policy at 50 Hz. Sim at 500 Hz (10× decimation). PID inner loop at 500 Hz.
 
 ---
 
+## Portfolio Overview
+
+This project explores end-to-end reinforcement learning for high-speed quadrotor racing in simulation.
+I trained a policy that controls a Crazyflie through a 7-gate Powerloop course using PPO, with a
+motor-level control path (policy actions -> rate PID -> rotor forces/torques) instead of waypoint-level
+commands.
+
+- Combines continuous-control RL with realistic quadrotor dynamics and actuator constraints.
+- Uses a sparse + dense reward mix to balance gate completion and stable flight behavior.
+- Implements direction-aware gate-crossing logic to prevent reward hacking.
+- Trains at scale (thousands of parallel environments) for sample efficiency.
+
+### What we implemented
+
+- Task-specific reward shaping and environment randomization controls.
+- Race progress tracking and gate/lap event handling.
+- PPO training workflow and local experimentation support with video logging.
+- Evaluation/inference pipeline with JIT and ONNX policy export.
+
+### Tech Stack
+
+- Simulator: Isaac Lab / Isaac Sim
+- RL library: RSL-RL (local vendored fork in `src/third_parties/rsl_rl_local`)
+- Algorithm: PPO (on-policy)
+- Language: Python
+- Compute setup: GPU training with large vectorized environment batches
+
+---
+
+## Code Snippets 
+
+### 1) Reward configuration used during training
+
+```python
+# scripts/rsl_rl/train_race.py
+rewards = {
+    'gate_cross_reward_scale':      5.0,
+    'lap_complete_reward_scale':    25.0,
+    'crash_reward_scale':           -0.002,
+    'death_cost':                   -0.5,
+    'progress_reward_scale':        0.08,
+    'progress_retreat_multiplier':  1.000,
+}
+
+env_cfg.is_train = True
+env_cfg.rewards = rewards
+env_cfg.domain_randomization = True
+```
+
+### 2) Direction-aware gate crossing logic
+
+```python
+# conceptual logic from quadcopter strategy update
+x_now = pose_drone_wrt_gate[:, 0]              # >0 approach side, <=0 passed gate plane
+within_y = torch.abs(pose_drone_wrt_gate[:, 1]) < gate_side * 0.5
+within_z = torch.abs(pose_drone_wrt_gate[:, 2]) < gate_side * 0.5
+
+crossed = (prev_x > 0.0) & (x_now <= 0.0) & within_y & within_z
+prev_x = x_now
+```
+
+### 3) Checkpoint loading + policy export for deployment
+
+```python
+# scripts/rsl_rl/play_race.py
+ppo_runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
+ppo_runner.load(resume_path)
+policy = ppo_runner.get_inference_policy(device=env.unwrapped.device)
+
+export_policy_as_jit(
+    ppo_runner.alg.actor_critic,
+    ppo_runner.obs_normalizer,
+    path=export_model_dir,
+    filename="policy.pt",
+)
+export_policy_as_onnx(
+    ppo_runner.alg.actor_critic,
+    normalizer=ppo_runner.obs_normalizer,
+    path=export_model_dir,
+    filename="policy.onnx",
+)
+```
+
+---
+
+## Architecture at a Glance
+
+```text
+Policy (50 Hz)
+  -> action: [thrust, roll_rate, pitch_rate, yaw_rate]
+  -> PID inner loop (500 Hz)
+  -> motor speeds
+  -> forces/torques in simulator
+  -> new state + gate events
+  -> reward + observation
+  -> PPO update
+```
+
+---
+
+## Project Highlights 
+
+- Built and trained a PPO-based quadrotor racing policy in Isaac Lab for a 7-gate 3D Powerloop track.
+- Designed reward and event logic to reduce exploitative behavior and improve lap-completion incentives.
+- Implemented scalable training runs with up to thousands of parallel environments and automated video logging.
+- Exported trained policies to TorchScript and ONNX for lightweight inference and downstream integration.
+
+---
+
 ## Setup
 
 ```bash
